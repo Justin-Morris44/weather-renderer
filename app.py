@@ -1,4 +1,4 @@
-from flask import Flask, request, send_file
+from flask import Flask, request, send_file, jsonify
 from io import BytesIO
 import matplotlib.pyplot as plt
 
@@ -6,26 +6,39 @@ app = Flask(__name__)
 
 @app.post("/render")
 def render():
-    data = request.get_json(force=True)
-    w = int(data.get("width", 1200))
-    h = int(data.get("height", 700))
-    points = data.get("points", [])
+    try:
+        print("HIT /render", request.method, request.content_type, flush=True)
 
-    fig, ax = plt.subplots(figsize=(w/100, h/100), dpi=100)
-    ax.set_facecolor("white")
+        data = request.get_json(force=True) or {}
+        w = int(data.get("width", 1200))
+        h = int(data.get("height", 700))
+        points = data.get("points", [])
 
-    for p in points:
-        lon = p["lon"]
-        lat = p["lat"]
-        label = p.get("label", "")
-        temp = p.get("temp_f", "")
-        ax.text(lon, lat, f"{label}\n{temp}°", ha="center", va="center")
+        fig, ax = plt.subplots(figsize=(w/100, h/100), dpi=100)
+        ax.set_facecolor("white")
 
-    ax.axis("off")
+        for p in points:
+            lon = p.get("lon")
+            lat = p.get("lat")
 
-    buf = BytesIO()
-    plt.savefig(buf, format="png", bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
+            if lon is None or lat is None:
+                raise ValueError(f"Missing lat/lon in point: {p}")
 
-    return send_file(buf, mimetype="image/png")
+            label = p.get("label", "")
+            temp = p.get("temp_f", "")
+
+            ax.text(lon, lat, f"{label}\n{temp}°",
+                    ha="center", va="center", fontsize=10)
+
+        ax.axis("off")
+
+        buf = BytesIO()
+        plt.savefig(buf, format="png", bbox_inches="tight", pad_inches=0.1)
+        plt.close(fig)
+        buf.seek(0)
+
+        return send_file(buf, mimetype="image/png")
+
+    except Exception as e:
+        print("RENDER ERROR:", repr(e), flush=True)
+        return jsonify({"ok": False, "error": str(e)}), 400
