@@ -4,31 +4,58 @@ import matplotlib.pyplot as plt
 
 app = Flask(__name__)
 
+def clamp(n: int, lo: int, hi: int) -> int:
+    return max(lo, min(hi, n))
+
 @app.post("/render")
 def render():
     try:
         print("HIT /render", request.method, request.content_type, flush=True)
 
         data = request.get_json(force=True) or {}
-        w = int(data.get("width", 1200))
-        h = int(data.get("height", 700))
+
+        # Clamp canvas size to avoid huge renders
+        w = clamp(int(data.get("width", 1200)), 200, 2000)
+        h = clamp(int(data.get("height", 700)), 200, 2000)
+        dpi = 100
+
         points = data.get("points", [])
+        if not isinstance(points, list):
+            raise ValueError("`points` must be a list of {lat, lon, ...} objects")
 
-        fig, ax = plt.subplots(figsize=(w/100, h/100), dpi=100)
-        ax.set_facecolor("white")
-
+        # Extract coords (accept lon or lng)
+        coords = []
         for p in points:
-            lon = p.get("lon")
+            if not isinstance(p, dict):
+                raise ValueError(f"Each point must be an object/dict. Got: {type(p)}")
+            lon = p.get("lon", p.get("lng"))
             lat = p.get("lat")
-
             if lon is None or lat is None:
                 raise ValueError(f"Missing lat/lon in point: {p}")
+            coords.append((float(lon), float(lat)))
 
-            label = p.get("label", "")
+        fig, ax = plt.subplots(figsize=(w / dpi, h / dpi), dpi=dpi)
+        ax.set_facecolor("white")
+
+        # Auto-zoom to fit points with padding
+        if coords:
+            lons = [c[0] for c in coords]
+            lats = [c[1] for c in coords]
+            pad_lon = max(0.2, (max(lons) - min(lons)) * 0.15)
+            pad_lat = max(0.2, (max(lats) - min(lats)) * 0.15)
+            ax.set_xlim(min(lons) - pad_lon, max(lons) + pad_lon)
+            ax.set_ylim(min(lats) - pad_lat, max(lats) + pad_lat)
+
+        # Draw points
+        for p in points:
+            lon = float(p.get("lon", p.get("lng")))
+            lat = float(p.get("lat"))
+            label = str(p.get("label", "")).strip()
             temp = p.get("temp_f", "")
+            temp_str = "" if temp == "" else str(temp)
 
-            ax.text(lon, lat, f"{label}\n{temp}°",
-                    ha="center", va="center", fontsize=10)
+            text = f"{label}\n{temp_str}°".strip()
+            ax.text(lon, lat, text, ha="center", va="center", fontsize=10)
 
         ax.axis("off")
 
