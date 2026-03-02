@@ -14,16 +14,16 @@ def render():
 
         data = request.get_json(force=True) or {}
 
-        # Clamp canvas size to avoid huge renders
-        w = clamp(int(data.get("width", 1200)), 200, 2000)
-        h = clamp(int(data.get("height", 700)), 200, 2000)
+        # HARD clamp so output can never exceed safe limits
+        w = clamp(int(data.get("width", 1200)), 200, 1400)
+        h = clamp(int(data.get("height", 700)), 200, 900)
         dpi = 100
 
         points = data.get("points", [])
         if not isinstance(points, list):
             raise ValueError("`points` must be a list of {lat, lon, ...} objects")
 
-        # Extract coords (accept lon or lng)
+        # Validate + collect coords (accept lon or lng)
         coords = []
         for p in points:
             if not isinstance(p, dict):
@@ -33,6 +33,8 @@ def render():
             if lon is None or lat is None:
                 raise ValueError(f"Missing lat/lon in point: {p}")
             coords.append((float(lon), float(lat)))
+
+        print("RENDER SIZE (w,h,dpi) =", w, h, dpi, "points=", len(coords), flush=True)
 
         fig, ax = plt.subplots(figsize=(w / dpi, h / dpi), dpi=dpi)
         ax.set_facecolor("white")
@@ -60,10 +62,12 @@ def render():
         ax.axis("off")
 
         buf = BytesIO()
-        plt.savefig(buf, format="png", bbox_inches="tight", pad_inches=0.1)
-        plt.close(fig)
-        buf.seek(0)
 
+        # IMPORTANT: DO NOT use bbox_inches="tight" (can create massive pixel dimensions)
+        plt.savefig(buf, format="png")
+        plt.close(fig)
+
+        buf.seek(0)
         return send_file(buf, mimetype="image/png")
 
     except Exception as e:
